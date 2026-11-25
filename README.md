@@ -15,6 +15,8 @@ A high-performance, real-time collaborative visual workspace built for fast brai
 ![Project Status](https://img.shields.io/badge/Status-Active-brightgreen)
 ![Tech Stack](https://img.shields.io/badge/Stack-Next.js%20%7C%20Socket.io%20%7C%20MongoDB-blue)
 
+**Live Demo:** [sketnix.piyushravi.in](https://sketnix.piyushravi.in)
+
 ## 🚀 Key Features
 
 ### 🌌 Infinite Canvas Engine
