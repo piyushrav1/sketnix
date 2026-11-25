@@ -78,7 +78,7 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
     };
   }, [roomID, user]);
 
-  // Keyboard shortcuts for tools
+  // Keyboard shortcuts for tools and undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input/textarea
@@ -88,8 +88,21 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
       ) {
         return;
       }
-      
+
       const key = e.key.toLowerCase();
+      if (e.ctrlKey || e.metaKey) {
+        if (key === "z" && !e.shiftKey) {
+          e.preventDefault();
+          socket?.emit("undo-request");
+        } else if (key === "y" || (key === "z" && e.shiftKey)) {
+          e.preventDefault();
+          socket?.emit("redo-request");
+        }
+        return;
+      }
+
+      if (e.altKey) return;
+
       setTool((current) => {
         const next = { ...current };
         if (key === "v") next.type = "pointer";
@@ -106,7 +119,7 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [socket]);
 
   function sendMessage(body: string) {
     socket?.emit("chat-message", { body });

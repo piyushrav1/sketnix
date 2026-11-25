@@ -54,6 +54,7 @@ export function StreamCanvas({
   const shapeCurrentRef = useRef<Point | null>(null);
 
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
+  const toolRef = useRef(tool);
   const isPanningRef = useRef(false);
   const panStartRef = useRef<{ x: number; y: number; camX: number; camY: number }>({ x: 0, y: 0, camX: 0, camY: 0 });
   const spaceDownRef = useRef(false);
@@ -79,6 +80,11 @@ export function StreamCanvas({
       redraw();
     });
   }, []);
+
+  useEffect(() => {
+    toolRef.current = tool;
+    scheduleRedraw();
+  }, [tool, scheduleRedraw]);
 
   useEffect(() => {
     strokesRef.current = initialState?.strokes || [];
@@ -465,7 +471,7 @@ export function StreamCanvas({
     context.fillRect(0, 0, rect.width, rect.height);
 
     // Draw infinite grid BEFORE applying camera transform (grid in screen space)
-    drawInfiniteGrid(context, rect.width, rect.height, cam);
+    drawInfiniteGrid(context, rect.width, rect.height, cam, toolRef.current.color);
 
     // Apply camera transform for strokes
     context.save();
@@ -501,7 +507,7 @@ export function StreamCanvas({
 
   /* ── Zoom controls ── */
 
-  function setZoom(newZoom: number) {
+  const setZoom = useCallback((newZoom: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -521,16 +527,26 @@ export function StreamCanvas({
     setZoomDisplay(Math.round(clamped * 100));
     onZoomChange?.(clamped, setZoom, resetView);
     scheduleRedraw();
-  }
+  }, [onZoomChange, scheduleRedraw]);
 
-  function resetView() {
+  const resetView = useCallback(() => {
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
     setZoomDisplay(100);
     onZoomChange?.(1, setZoom, resetView);
     scheduleRedraw();
-  }
+  }, [onZoomChange, scheduleRedraw]);
 
-  const cursorStyle = tool.type === "hand" || isPanningRef.current || spaceDownRef.current ? "grab" : tool.type === "pointer" ? "default" : "crosshair";
+  useEffect(() => {
+    onZoomChange?.(cameraRef.current.zoom, setZoom, resetView);
+  }, [onZoomChange, setZoom, resetView]);
+
+  const cursorColor = tool.type === "eraser" ? "#64748b" : tool.color;
+  const cursorStyle =
+    tool.type === "hand" || isPanningRef.current || spaceDownRef.current
+      ? "grab"
+      : tool.type === "pointer"
+        ? "default"
+        : buildCrosshairCursor(cursorColor);
 
   return (
     <section ref={wrapRef} className="relative min-h-0 flex-1 overflow-hidden bg-white">
@@ -615,7 +631,7 @@ function generateShapePoints(type: string, start: Point, end: Point): Point[] {
   return points;
 }
 
-function drawInfiniteGrid(ctx: CanvasRenderingContext2D, width: number, height: number, cam: Camera) {
+function drawInfiniteGrid(ctx: CanvasRenderingContext2D, width: number, height: number, cam: Camera, crosshairColor: string) {
   // 3-tier adaptive grid: minor (32px), medium (160px), major (800px) in world-space
   const levels = [
     { worldSize: 32,  color: [226, 232, 240], maxOpacity: 0.45 },  // minor — light
@@ -656,7 +672,9 @@ function drawInfiniteGrid(ctx: CanvasRenderingContext2D, width: number, height: 
   const ox = cam.x;
   const oy = cam.y;
   if (ox > -2 && ox < width + 2 && oy > -2 && oy < height + 2) {
-    ctx.strokeStyle = "rgba(94, 234, 212, 0.35)";
+    ctx.save();
+    ctx.strokeStyle = crosshairColor;
+    ctx.globalAlpha = 0.4;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(ox, Math.max(0, oy - 20));
@@ -664,14 +682,38 @@ function drawInfiniteGrid(ctx: CanvasRenderingContext2D, width: number, height: 
     ctx.moveTo(Math.max(0, ox - 20), oy);
     ctx.lineTo(Math.min(width, ox + 20), oy);
     ctx.stroke();
+    ctx.restore();
   }
 }
 
 function strokesToSvg(strokes: Stroke[], canvas: HTMLCanvasElement | null) {
   const rect = canvas?.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect?.width || 1200));
-  const height = Math.max(1, Math.round(rect?.height || 800));
-  const paths = strokes
+  const fallbackWidth = Math.max(1, Math.round(rect?.width || 1200));
+  const fallbackHeight = Math.max(1, Math.round(rect?.height || 800));
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const stroke of strokes) {
+    const pad = (stroke.style.width || 4) / 2;
+    for (const point of stroke.points) {
+      if (point.x - pad < minX) minX = point.x - pad;
+      if (point.y - pad < minY) minY = point.y - pad;
+      if (point.x + pad > maxX) maxX = point.x + pad;
+      if (point.y + pad > maxY) maxY = point.y + pad;
+    }
+  }
+
+  const padding = 24;
+  const hasStrokes = Number.isFinite(minX) && Number.isFinite(minY);
+  const vbX = hasStrokes ? Math.floor(minX - padding) : 0;
+  const vbY = hasStrokes ? Math.floor(minY - padding) : 0;
+  const vbWidth = hasStrokes ? Math.max(1, Math.ceil(maxX - minX + padding * 2)) : fallbackWidth;
+  const vbHeight = hasStrokes ? Math.max(1, Math.ceil(maxY - minY + padding * 2)) : fallbackHeight;
+
+  const paths = [...strokes]
     .sort((a, b) => a.zIndex - b.zIndex)
     .map((stroke) => {
       const points = stroke.points.map((point) => `${point.x},${point.y}`).join(" ");
@@ -679,7 +721,22 @@ function strokesToSvg(strokes: Stroke[], canvas: HTMLCanvasElement | null) {
     })
     .join("");
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#ffffff"/>${paths}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${vbWidth}" height="${vbHeight}" viewBox="${vbX} ${vbY} ${vbWidth} ${vbHeight}"><rect x="${vbX}" y="${vbY}" width="${vbWidth}" height="${vbHeight}" fill="#ffffff"/>${paths}</svg>`;
+}
+
+function isLightHex(hex: string) {
+  const clean = hex.replace("#", "");
+  if (clean.length !== 6) return false;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.82;
+}
+
+function buildCrosshairCursor(color: string) {
+  const halo = isLightHex(color) ? "#0f172a" : "#ffffff";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke-linecap="round"><path d="M12 3v6M12 15v6M3 12h6M15 12h6" stroke="${halo}" stroke-width="3.5"/><path d="M12 3v6M12 15v6M3 12h6M15 12h6" stroke="${color}" stroke-width="1.75"/><circle cx="12" cy="12" r="1.5" fill="${color}" stroke="${halo}" stroke-width="0.75"/></g></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
 }
 
 function download(filename: string, href: string) {

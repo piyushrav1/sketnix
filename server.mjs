@@ -190,6 +190,18 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("remove-stroke", async ({ strokeID }) => {
+    const { roomID } = socket.data;
+    if (!roomID || !strokeID) return;
+
+    const stroke = await Stroke.findOneAndUpdate(
+      { roomID, strokeID, isDeleted: false },
+      { isDeleted: true }
+    );
+
+    if (stroke) socket.to(roomID).emit("remove-stroke", { strokeID });
+  });
+
   socket.on("clear-canvas", async () => {
     const { roomID } = socket.data;
     if (!roomID) return;
