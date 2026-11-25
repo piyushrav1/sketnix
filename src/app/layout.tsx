@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sketnix — Collaborative Visual Workspace",
+  title: "Sketnix",
   description: "Real-time collaborative visual workspace for brainstorming, diagrams, and team sessions"
 };
 
