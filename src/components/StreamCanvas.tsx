@@ -5,6 +5,7 @@ import type React from "react";
 import type { Socket } from "socket.io-client";
 import rough from "roughjs";
 import { Minus, Plus } from "lucide-react";
+import { LinkModal } from "./QuickModals";
 import type { Cursor, Point, Stroke, StrokeStyle } from "@/types/whiteboard";
 
 type RoomState = {
@@ -37,9 +38,11 @@ export function StreamCanvas({
   snapEnabled = true,
   showMinimap = false,
   viewMode = false,
+  followingId = null,
   onZoomChange,
   onSelectedKindChange,
-  onItemsChange
+  onItemsChange,
+  onPickColor
 }: {
   socket: Socket | null;
   initialState: RoomState | null;
@@ -65,9 +68,11 @@ export function StreamCanvas({
   snapEnabled?: boolean;
   showMinimap?: boolean;
   viewMode?: boolean;
+  followingId?: string | null;
   onZoomChange?: (zoom: number, setZoom: (z: number) => void, resetView: () => void) => void;
-  onSelectedKindChange?: (kind: "stroke" | "text" | "note" | "frame" | null) => void;
+  onSelectedKindChange?: (kind: "stroke" | "text" | "note" | "frame" | "image" | null) => void;
   onItemsChange?: (items: Stroke[]) => void;
+  onPickColor?: (color: string) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -78,11 +83,16 @@ export function StreamCanvas({
   const selectionBoxRef = useRef<{ start: Point; current: Point } | null>(null);
   const dragMoveRef = useRef<{ start: Point; last: Point; moved: boolean } | null>(null);
   const boxCreateRef = useRef<{ start: Point; current: Point; kind: "text" | "note" | "frame" } | null>(null);
+  const rotateHandleRef = useRef<{ strokeID: string; cx: number; cy: number; angle: number } | null>(null);
+  const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const cameraEmitRef = useRef(0);
+  const followingIdRef = useRef(followingId);
   const snapLinesRef = useRef<{ x?: number; y?: number }[]>([]);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
   const darkModeRef = useRef(darkMode);
   const showGridRef = useRef(showGrid);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [linkModal, setLinkModal] = useState<{ ids: string[]; initialUrl: string } | null>(null);
   const resizeHandleRef = useRef<{
     strokeID: string;
     handle: "nw" | "ne" | "sw" | "se" | "w" | "e";
@@ -152,8 +162,9 @@ export function StreamCanvas({
   useEffect(() => {
     darkModeRef.current = darkMode;
     showGridRef.current = showGrid;
+    followingIdRef.current = followingId;
     scheduleRedraw();
-  }, [darkMode, showGrid, showMinimap, scheduleRedraw]);
+  }, [darkMode, showGrid, showMinimap, followingId, scheduleRedraw]);
 
   useEffect(() => {
     toolRef.current = tool;
@@ -309,12 +320,27 @@ export function StreamCanvas({
       ) {
         return;
       }
-      const pasted = e.clipboardData?.getData("text/plain")?.trim();
-      if (!pasted || !socket) return;
-      e.preventDefault();
       const canvas = canvasRef.current;
       const rect = canvas?.getBoundingClientRect();
       const center = screenToWorld((rect?.width || 800) / 2, (rect?.height || 600) / 2);
+
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              e.preventDefault();
+              insertImageFile(file, center);
+              return;
+            }
+          }
+        }
+      }
+
+      const pasted = e.clipboardData?.getData("text/plain")?.trim();
+      if (!pasted || !socket) return;
+      e.preventDefault();
       const t = toolRef.current;
       const strokeID = crypto.randomUUID();
       const style: StrokeStyle = {
@@ -431,6 +457,7 @@ export function StreamCanvas({
 
       setZoomDisplay(Math.round(newZoom * 100));
       onZoomChange?.(newZoom, setZoom, resetView);
+      maybeEmitCamera();
       scheduleRedraw();
     };
 
@@ -524,6 +551,13 @@ export function StreamCanvas({
       laserTrailsRef.current.set(id, trail.filter((p) => now - p.t < 800));
       scheduleRedraw();
     };
+    const cameraSync = ({ userId, x, y, zoom }: { userId: string; x: number; y: number; zoom: number }) => {
+      if (followingIdRef.current !== userId) return;
+      cameraRef.current = { x, y, zoom };
+      setZoomDisplay(Math.round(zoom * 100));
+      onZoomChange?.(zoom, setZoom, resetView);
+      scheduleRedraw();
+    };
     const cursorMove = (cursor: Cursor) => {
       setCursors((current) => new Map(current).set(cursor.user.id, cursor));
     };
@@ -547,6 +581,7 @@ export function StreamCanvas({
     socket.on("strokes-imported", strokesImported);
     socket.on("item-upserted", itemUpserted);
     socket.on("laser-move", laserMove);
+    socket.on("camera-sync", cameraSync);
     socket.on("cursor-move", cursorMove);
     socket.on("cursor-leave", cursorLeave);
 
@@ -563,6 +598,7 @@ export function StreamCanvas({
       socket.off("strokes-imported", strokesImported);
       socket.off("item-upserted", itemUpserted);
       socket.off("laser-move", laserMove);
+      socket.off("camera-sync", cameraSync);
       socket.off("cursor-move", cursorMove);
       socket.off("cursor-leave", cursorLeave);
     };
@@ -680,16 +716,44 @@ export function StreamCanvas({
 
     if (!socket || event.button !== 0) return;
 
+    if (tool.type === "eyedropper") {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (canvas && ctx) {
+        const ratio = window.devicePixelRatio || 1;
+        const px = Math.min(canvas.width - 1, Math.max(0, Math.floor(sx * ratio)));
+        const py = Math.min(canvas.height - 1, Math.max(0, Math.floor(sy * ratio)));
+        const d = ctx.getImageData(px, py, 1, 1).data;
+        const hex = `#${[d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+        onPickColor?.(hex);
+      }
+      return;
+    }
+
     const point = screenToWorld(sx, sy);
 
     if (tool.type === "pointer") {
       const tolerance = 10 / cameraRef.current.zoom;
 
-      // Check corner resize handles on single selected text/note
+      // Check rotation handle & corner resize handles on single selected item
       if (selectedIdsRef.current.size === 1) {
         const onlyId = Array.from(selectedIdsRef.current)[0];
         const sel = strokesRef.current.find((s) => s.strokeID === onlyId);
-        if (sel && (sel.kind === "note" || sel.kind === "text")) {
+        if (sel && !sel.locked) {
+          const b = getStrokeBounds(sel);
+          const rotHandle = { x: (b.minX + b.maxX) / 2, y: b.minY - 24 / cameraRef.current.zoom };
+          if (Math.hypot(point.x - rotHandle.x, point.y - rotHandle.y) <= 10 / cameraRef.current.zoom) {
+            rotateHandleRef.current = {
+              strokeID: sel.strokeID,
+              cx: (b.minX + b.maxX) / 2,
+              cy: (b.minY + b.maxY) / 2,
+              angle: sel.angle || 0
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+            return;
+          }
+        }
+        if (sel && (sel.kind === "note" || sel.kind === "text" || sel.kind === "frame" || sel.kind === "image")) {
           const handle = hitTestResizeHandle(point, sel, 8 / cameraRef.current.zoom);
           if (handle) {
             const b = getStrokeBounds(sel);
@@ -731,6 +795,10 @@ export function StreamCanvas({
       }
 
       if (hitStroke) {
+        if ((event.ctrlKey || event.metaKey) && hitStroke.link) {
+          window.open(hitStroke.link, "_blank", "noopener,noreferrer");
+          return;
+        }
         const groupMatches = hitStroke.groupId
           ? strokesRef.current.filter((s) => s.groupId === hitStroke!.groupId).map((s) => s.strokeID)
           : [hitStroke.strokeID];
@@ -826,6 +894,7 @@ export function StreamCanvas({
       const dy = event.clientY - panStartRef.current.y;
       cameraRef.current.x = panStartRef.current.camX + dx;
       cameraRef.current.y = panStartRef.current.camY + dy;
+      maybeEmitCamera();
       scheduleRedraw();
       return;
     }
@@ -849,6 +918,21 @@ export function StreamCanvas({
     }
 
     if (tool.type === "pointer") {
+      if (rotateHandleRef.current) {
+        const { strokeID, cx, cy } = rotateHandleRef.current;
+        let angle = Math.atan2(point.y - cy, point.x - cx) + Math.PI / 2;
+        if (event.shiftKey) {
+          const step = Math.PI / 12;
+          angle = Math.round(angle / step) * step;
+        }
+        rotateHandleRef.current.angle = angle;
+        strokesRef.current = strokesRef.current.map((s) =>
+          s.strokeID === strokeID ? { ...s, angle } : s
+        );
+        scheduleRedraw();
+        return;
+      }
+
       if (resizeHandleRef.current) {
         const { strokeID, handle, origOrigin, origBox, origFontSize } = resizeHandleRef.current;
         const minW = 80;
@@ -1085,6 +1169,17 @@ export function StreamCanvas({
     }
 
     if (tool.type === "pointer") {
+      if (rotateHandleRef.current) {
+        const { strokeID, angle } = rotateHandleRef.current;
+        rotateHandleRef.current = null;
+        socket?.emit("patch-strokes", { patches: [{ strokeID, angle }] });
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        scheduleRedraw();
+        return;
+      }
+
       if (resizeHandleRef.current) {
         const { strokeID } = resizeHandleRef.current;
         resizeHandleRef.current = null;
@@ -1102,8 +1197,11 @@ export function StreamCanvas({
       }
 
       if (dragMoveRef.current?.moved && socket) {
+        const movedIds = new Set(selectedIdsRef.current);
+        // Update any bound arrows connected to moved shapes
+        strokesRef.current = updateBoundArrows(strokesRef.current, movedIds);
         const updates = strokesRef.current
-          .filter((s) => selectedIdsRef.current.has(s.strokeID))
+          .filter((s) => movedIds.has(s.strokeID) || (s.startBinding && movedIds.has(s.startBinding.elementId)) || (s.endBinding && movedIds.has(s.endBinding.elementId)))
           .map((s) => ({ strokeID: s.strokeID, points: s.points }));
         if (updates.length > 0) socket.emit("move-strokes", { updates });
       }
@@ -1125,11 +1223,28 @@ export function StreamCanvas({
     const active = localStrokeRef.current;
     if (!active || !socket) return;
 
+    let startBinding: { elementId: string } | undefined;
+    let endBinding: { elementId: string } | undefined;
     if (tool.type === "pencil" || tool.type === "highlighter") {
       flushQueuedPoint(active.strokeID);
     } else if (shapeStartRef.current && shapeCurrentRef.current) {
       // Generate shape points
-      const points = generateShapePoints(tool.type, shapeStartRef.current, shapeCurrentRef.current);
+      let sPt = shapeStartRef.current;
+      let ePt = shapeCurrentRef.current;
+      if (tool.type === "arrow") {
+        const tol = 18 / cameraRef.current.zoom;
+        const startTarget = findBindTarget(sPt, strokesRef.current, tol);
+        const endTarget = findBindTarget(ePt, strokesRef.current, tol);
+        if (startTarget) {
+          startBinding = { elementId: startTarget.stroke.strokeID };
+          sPt = startTarget.anchor;
+        }
+        if (endTarget) {
+          endBinding = { elementId: endTarget.stroke.strokeID };
+          ePt = endTarget.anchor;
+        }
+      }
+      const points = generateShapePoints(tool.type, sPt, ePt);
       if (points.length > 0) {
         active.points = points;
         socket.emit("start-stroke", {
@@ -1142,6 +1257,8 @@ export function StreamCanvas({
           dashed: active.style.dashed,
           roughness: active.style.roughness,
           seed: active.style.seed,
+          startBinding,
+          endBinding,
           initialCoords: points[0]
         });
         points.slice(1).forEach(pt => socket.emit("stream-stroke", { strokeID: active.strokeID, point: pt }));
@@ -1153,7 +1270,17 @@ export function StreamCanvas({
     shapeCurrentRef.current = null;
     
     if (active.points.length > 0) {
-      strokesRef.current = [...strokesRef.current, { ...active, author: { id: "me", name: "Me" }, zIndex: Date.now() }];
+      strokesRef.current = [
+        ...strokesRef.current,
+        {
+          ...active,
+          author: { id: "me", name: "Me" },
+          zIndex: Date.now(),
+          ...(startBinding ? { startBinding } : {}),
+          ...(endBinding ? { endBinding } : {})
+        }
+      ];
+      onItemsChange?.(strokesRef.current);
       socket.emit("end-stroke", { strokeID: active.strokeID, snapshot: canvasRef.current?.toDataURL("image/png") });
     }
     
@@ -1196,6 +1323,59 @@ export function StreamCanvas({
     socket.emit("cursor-move", point);
   }
 
+  function maybeEmitCamera() {
+    if (!socket || followingIdRef.current) return;
+    const now = performance.now();
+    if (now - cameraEmitRef.current < 60) return;
+    cameraEmitRef.current = now;
+    socket.emit("camera-sync", cameraRef.current);
+  }
+
+  function insertImageFile(file: File, worldPos: Point) {
+    if (!socket) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 960;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(40, Math.round(img.width * scale));
+        const h = Math.max(40, Math.round(img.height * scale));
+        const off = document.createElement("canvas");
+        off.width = w;
+        off.height = h;
+        const ctx = off.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, w, h);
+        const imageData = off.toDataURL("image/jpeg", 0.84);
+        const strokeID = crypto.randomUUID();
+        const item: Stroke = {
+          strokeID,
+          author: { id: "me", name: "Me" },
+          points: [{ x: worldPos.x - w / 2, y: worldPos.y - h / 2 }],
+          style: { color: "#0d9488", width: 2 },
+          zIndex: Date.now(),
+          kind: "image",
+          box: { width: w, height: h },
+          imageData
+        };
+        strokesRef.current = [...strokesRef.current, item];
+        onItemsChange?.(strokesRef.current);
+        socket.emit("upsert-item", {
+          strokeID,
+          points: item.points,
+          style: item.style,
+          kind: "image",
+          box: item.box,
+          imageData
+        });
+        scheduleRedraw();
+      };
+      if (typeof reader.result === "string") img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   function emitCursorLeave() {
     if (!socket) return;
     socket.emit("cursor-leave");
@@ -1229,6 +1409,7 @@ export function StreamCanvas({
       cameraRef.current.y = rect.height / 2 - ((box.minY + box.maxY) / 2) * newZoom;
       setZoomDisplay(Math.round(newZoom * 100));
       onZoomChange?.(newZoom, setZoom, resetView);
+      maybeEmitCamera();
       scheduleRedraw();
       return;
     }
@@ -1354,6 +1535,35 @@ export function StreamCanvas({
         patches.push({ strokeID: s.strokeID, points: nextPts });
         return { ...s, points: nextPts };
       });
+    } else if (action === "distribute-h" || action === "distribute-v") {
+      const sel = strokesRef.current
+        .filter((s) => selectedIdsRef.current.has(s.strokeID) && !s.locked)
+        .map((s) => ({ s, b: getStrokeBounds(s) }))
+        .sort((a, b) => (action === "distribute-h" ? a.b.minX - b.b.minX : a.b.minY - b.b.minY));
+      if (sel.length < 3) return;
+      const first = sel[0].b;
+      const last = sel[sel.length - 1].b;
+      const span = action === "distribute-h" ? last.minX - first.minX : last.minY - first.minY;
+      const step = span / (sel.length - 1);
+      const shiftMap = new Map<string, { dx: number; dy: number }>();
+      sel.forEach((entry, idx) => {
+        const target = (action === "distribute-h" ? first.minX : first.minY) + step * idx;
+        shiftMap.set(entry.s.strokeID, {
+          dx: action === "distribute-h" ? target - entry.b.minX : 0,
+          dy: action === "distribute-v" ? target - entry.b.minY : 0
+        });
+      });
+      strokesRef.current = strokesRef.current.map((s) => {
+        const sh = shiftMap.get(s.strokeID);
+        if (!sh) return s;
+        const nextPts = s.points.map((p) => ({ x: p.x + sh.dx, y: p.y + sh.dy }));
+        patches.push({ strokeID: s.strokeID, points: nextPts });
+        return { ...s, points: nextPts };
+      });
+    } else if (action === "set-link") {
+      const first = strokesRef.current.find((s) => selectedIdsRef.current.has(s.strokeID));
+      setLinkModal({ ids: Array.from(selectedIdsRef.current), initialUrl: first?.link || "" });
+      return;
     }
 
     if (patches.length > 0) {
@@ -1528,7 +1738,21 @@ export function StreamCanvas({
         const pad = 6 / cam.zoom;
         context.strokeRect(b.minX - pad, b.minY - pad, b.maxX - b.minX + pad * 2, b.maxY - b.minY + pad * 2);
 
-        if (selectedIdsRef.current.size === 1 && (stroke.kind === "note" || stroke.kind === "text")) {
+        if (selectedIdsRef.current.size === 1 && !stroke.locked) {
+          context.setLineDash([]);
+          const rotX = (b.minX + b.maxX) / 2;
+          const rotY = b.minY - 24 / cam.zoom;
+          context.beginPath();
+          context.moveTo(rotX, b.minY - pad);
+          context.lineTo(rotX, rotY);
+          context.stroke();
+          context.beginPath();
+          context.arc(rotX, rotY, 5 / cam.zoom, 0, Math.PI * 2);
+          context.fill();
+          context.stroke();
+        }
+
+        if (selectedIdsRef.current.size === 1 && (stroke.kind === "note" || stroke.kind === "text" || stroke.kind === "frame" || stroke.kind === "image")) {
           context.setLineDash([]);
           const hs = 8 / cam.zoom;
           const midY = (b.minY + b.maxY) / 2;
@@ -1701,7 +1925,37 @@ export function StreamCanvas({
   }
 
   function drawItem(context: CanvasRenderingContext2D, item: Stroke) {
-    if (item.kind === "frame") {
+    const hasAngle = Boolean(item.angle && Math.abs(item.angle) > 0.001);
+    if (hasAngle) {
+      const b = getStrokeBounds(item);
+      const cx = (b.minX + b.maxX) / 2;
+      const cy = (b.minY + b.maxY) / 2;
+      context.save();
+      context.translate(cx, cy);
+      context.rotate(item.angle!);
+      context.translate(-cx, -cy);
+    }
+
+    const renderBody = () => {
+      if (item.kind === "image" && item.imageData) {
+        const origin = item.points[0];
+        if (!origin) return;
+        const w = item.box?.width || 240;
+        const h = item.box?.height || 180;
+        let img = imageCacheRef.current.get(item.strokeID);
+        if (!img) {
+          img = new Image();
+          img.onload = () => scheduleRedraw();
+          img.src = item.imageData;
+          imageCacheRef.current.set(item.strokeID, img);
+        }
+        if (img.complete && img.naturalWidth > 0) {
+          context.drawImage(img, origin.x, origin.y, w, h);
+        }
+        return;
+      }
+
+      if (item.kind === "frame") {
       const origin = item.points[0];
       if (!origin) return;
       const w = item.box?.width || 360;
@@ -1784,7 +2038,11 @@ export function StreamCanvas({
         context.fill();
       }
 
-      context.fillStyle = item.style.color;
+      const textColor =
+        item.style.color === "#111827" && darkModeRef.current && !item.style.textBg
+          ? "#f8fafc"
+          : item.style.color;
+      context.fillStyle = textColor;
       context.textBaseline = "top";
       context.textAlign = textAlign;
       if (item.box?.width) {
@@ -1801,12 +2059,33 @@ export function StreamCanvas({
     }
 
     drawStroke(context, item.points, item.style);
+    };
+
+    renderBody();
+    if (hasAngle) {
+      context.restore();
+    }
+
+    if (item.link) {
+      const b = getStrokeBounds(item);
+      context.save();
+      context.fillStyle = "#0d9488";
+      context.beginPath();
+      context.arc(b.maxX - 4, b.minY + 4, 5, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+    }
   }
 
   function drawStroke(context: CanvasRenderingContext2D, points: Point[], style: StrokeStyle) {
     if (points.length === 0) return;
 
-    const resolvedColor = style.color === "#111827" && darkModeRef.current ? "#f8fafc" : style.color;
+    const isDark = darkModeRef.current;
+    const resolvedColor = style.color === "#111827" && isDark ? "#f8fafc" : style.color;
+    const resolvedFill =
+      isDark && style.fill && (style.fill.startsWith("rgba(17, 24, 39") || style.fill === "#111827")
+        ? "rgba(248, 250, 252, 0.22)"
+        : style.fill;
 
     if (style.variant === "shape" && (style.roughness ?? 0) > 0 && points.length >= 2 && canvasRef.current) {
       context.save();
@@ -1820,7 +2099,7 @@ export function StreamCanvas({
         roughness: style.roughness ?? 1.5,
         seed: style.seed ?? 1,
         ...(style.dashed ? { strokeLineDash: [8, 6] } : {}),
-        ...(style.fill && isClosed ? { fill: style.fill, fillStyle: "hachure", hachureGap: Math.max(6, style.width * 2) } : {})
+        ...(resolvedFill && isClosed ? { fill: resolvedFill, fillStyle: "hachure", hachureGap: Math.max(6, style.width * 2) } : {})
       };
       if (isClosed) {
         rc.polygon(tuplePts, opts);
@@ -1858,9 +2137,9 @@ export function StreamCanvas({
       }
     }
 
-    if (style.fill && points.length >= 3) {
+    if (resolvedFill && points.length >= 3) {
       context.closePath();
-      context.fillStyle = style.fill;
+      context.fillStyle = resolvedFill;
       context.fill();
     }
 
@@ -1912,7 +2191,20 @@ export function StreamCanvas({
         : buildCrosshairCursor(cursorColor);
 
   return (
-    <section ref={wrapRef} className="relative min-h-0 flex-1 overflow-hidden bg-white">
+    <section
+      ref={wrapRef}
+      className="relative min-h-0 flex-1 overflow-hidden bg-white"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files?.[0];
+        if (file && file.type.startsWith("image/")) {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pt = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+          insertImageFile(file, pt);
+        }
+      }}
+    >
       <canvas
         ref={canvasRef}
         className="block h-full w-full"
@@ -1948,6 +2240,9 @@ export function StreamCanvas({
             { label: "Flip Vertical", action: "flip-v" },
             { label: "Align Left", action: "align-left" },
             { label: "Align Center", action: "align-center" },
+            { label: "Distribute H", action: "distribute-h" },
+            { label: "Distribute V", action: "distribute-v" },
+            { label: "Set / Edit Link", action: "set-link" },
             { label: "Zoom to Fit", action: "zoom-fit" },
             { label: "Delete", shortcut: "Del", action: "delete", danger: true }
           ].map((item) => (
@@ -2087,6 +2382,25 @@ export function StreamCanvas({
       })}
 
 
+      <LinkModal
+        open={linkModal !== null}
+        initialUrl={linkModal?.initialUrl || ""}
+        onClose={() => setLinkModal(null)}
+        onSave={(clean) => {
+          if (!linkModal) return;
+          const idSet = new Set(linkModal.ids);
+          const patches: Partial<Stroke>[] = [];
+          strokesRef.current = strokesRef.current.map((s) => {
+            if (!idSet.has(s.strokeID)) return s;
+            patches.push({ strokeID: s.strokeID, link: clean });
+            return { ...s, link: clean || undefined };
+          });
+          if (patches.length > 0) {
+            socket?.emit("patch-strokes", { patches });
+            scheduleRedraw();
+          }
+        }}
+      />
     </section>
   );
 }
@@ -2334,6 +2648,15 @@ function mergeBoxes(boxes: Box[]): Box {
 }
 
 function getStrokeBounds(stroke: Stroke): Box {
+  if (stroke.kind === "image") {
+    const origin = stroke.points[0] || { x: 0, y: 0 };
+    return {
+      minX: origin.x,
+      minY: origin.y,
+      maxX: origin.x + (stroke.box?.width || 240),
+      maxY: origin.y + (stroke.box?.height || 180)
+    };
+  }
   if (stroke.kind === "frame") {
     const origin = stroke.points[0] || { x: 0, y: 0 };
     return {
@@ -2379,7 +2702,7 @@ function getStrokeBounds(stroke: Stroke): Box {
 }
 
 function isPointNearStroke(pt: Point, stroke: Stroke, tolerance: number) {
-  if (stroke.kind === "note" || stroke.kind === "text" || stroke.kind === "frame") {
+  if (stroke.kind === "note" || stroke.kind === "text" || stroke.kind === "frame" || stroke.kind === "image") {
     const b = getStrokeBounds(stroke);
     return pt.x >= b.minX - tolerance && pt.x <= b.maxX + tolerance && pt.y >= b.minY - tolerance && pt.y <= b.maxY + tolerance;
   }
@@ -2458,6 +2781,76 @@ function buildCrosshairCursor(color: string) {
   const halo = isLightHex(color) ? "#0f172a" : "#ffffff";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke-linecap="round"><path d="M12 3v6M12 15v6M3 12h6M15 12h6" stroke="${halo}" stroke-width="3.5"/><path d="M12 3v6M12 15v6M3 12h6M15 12h6" stroke="${color}" stroke-width="1.75"/><circle cx="12" cy="12" r="1.5" fill="${color}" stroke="${halo}" stroke-width="0.75"/></g></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
+}
+
+function findBindTarget(pt: Point, strokes: Stroke[], tolerance: number): { stroke: Stroke; anchor: Point } | null {
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const s = strokes[i];
+    const isShape = s.kind === "note" || (s.style.variant === "shape" && s.points.length >= 4);
+    if (!isShape) continue;
+    const b = getStrokeBounds(s);
+    if (pt.x >= b.minX - tolerance && pt.x <= b.maxX + tolerance && pt.y >= b.minY - tolerance && pt.y <= b.maxY + tolerance) {
+      const cx = (b.minX + b.maxX) / 2;
+      const cy = (b.minY + b.maxY) / 2;
+      const anchors = [
+        { x: cx, y: b.minY },
+        { x: cx, y: b.maxY },
+        { x: b.minX, y: cy },
+        { x: b.maxX, y: cy }
+      ];
+      let best = anchors[0];
+      let bestD = Infinity;
+      for (const a of anchors) {
+        const d = (a.x - pt.x) ** 2 + (a.y - pt.y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = a;
+        }
+      }
+      return { stroke: s, anchor: best };
+    }
+  }
+  return null;
+}
+
+function updateBoundArrows(strokes: Stroke[], movedIds: Set<string>): Stroke[] {
+  const byId = new Map(strokes.map((s) => [s.strokeID, s]));
+  return strokes.map((s) => {
+    if (!s.startBinding && !s.endBinding) return s;
+    const startMoved = s.startBinding && movedIds.has(s.startBinding.elementId);
+    const endMoved = s.endBinding && movedIds.has(s.endBinding.elementId);
+    if (!startMoved && !endMoved) return s;
+    if (s.points.length < 2) return s;
+
+    let start = s.points[0];
+    let end = s.points[1];
+    if (startMoved && s.startBinding) {
+      const target = byId.get(s.startBinding.elementId);
+      if (target) {
+        const b = getStrokeBounds(target);
+        start = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+      }
+    }
+    if (endMoved && s.endBinding) {
+      const target = byId.get(s.endBinding.elementId);
+      if (target) {
+        const b = getStrokeBounds(target);
+        end = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+      }
+    }
+    const angle = Math.atan2(end.y - start.y, end.x - start.x);
+    const headLen = 20;
+    return {
+      ...s,
+      points: [
+        start,
+        end,
+        { x: end.x - headLen * Math.cos(angle - Math.PI / 6), y: end.y - headLen * Math.sin(angle - Math.PI / 6) },
+        end,
+        { x: end.x - headLen * Math.cos(angle + Math.PI / 6), y: end.y - headLen * Math.sin(angle + Math.PI / 6) }
+      ]
+    };
+  });
 }
 
 function download(filename: string, href: string) {

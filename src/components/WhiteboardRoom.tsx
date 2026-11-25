@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import {
   AlignCenter,
@@ -19,6 +20,7 @@ import {
   FileCode2,
   FileJson,
   Frame,
+  GitBranch,
   Grid3X3,
   Hand,
   HelpCircle,
@@ -35,6 +37,7 @@ import {
   Move,
   PaintBucket,
   Pencil,
+  Pipette,
   Plus,
   RotateCcw,
   RotateCw,
@@ -50,7 +53,7 @@ import {
 import Link from "next/link";
 import { ActiveUsers } from "./ActiveUsers";
 import { ChatSidebar } from "./ChatSidebar";
-import { CommandPalette, SearchModal, ShortcutsModal, type CommandItem } from "./QuickModals";
+import { CommandPalette, ConfirmModal, MermaidModal, SearchModal, ShortcutsModal, type CommandItem } from "./QuickModals";
 import { StreamCanvas } from "./StreamCanvas";
 import type { ChatMessage, Stroke, User } from "@/types/whiteboard";
 
@@ -61,6 +64,7 @@ type RoomState = {
 };
 
 export function WhiteboardRoom({ roomID }: { roomID: string }) {
+  const router = useRouter();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -81,7 +85,7 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
     roughness: 1.5,
     noteColor: "#fef08a"
   });
-  const [selectedItemKind, setSelectedItemKind] = useState<"stroke" | "text" | "note" | "frame" | null>(null);
+  const [selectedItemKind, setSelectedItemKind] = useState<"stroke" | "text" | "note" | "frame" | "image" | null>(null);
   const [copied, setCopied] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
@@ -92,6 +96,16 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [mermaidOpen, setMermaidOpen] = useState(false);
+  const [followingId, setFollowingId] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    cancelLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
   const [boardItems, setBoardItems] = useState<Stroke[]>([]);
   const user = useMemo(readUser, []);
 
@@ -123,12 +137,23 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
     nextSocket.on("chat-message", (message: ChatMessage) => {
       setMessages((current) => [...current, message].slice(-120));
     });
-    nextSocket.on("room-error", (message: string) => alert(message));
+    nextSocket.on("room-error", (message: string) =>
+      setConfirmState({
+        title: "Room Notice",
+        description: message,
+        confirmLabel: "OK",
+        cancelLabel: "",
+        onConfirm: () => {}
+      })
+    );
+    nextSocket.on("room-deleted", () => {
+      router.push("/");
+    });
 
     return () => {
       nextSocket.disconnect();
     };
-  }, [roomID, user]);
+  }, [roomID, user, router]);
 
   // Keyboard shortcuts for tools and undo/redo
   useEffect(() => {
@@ -234,10 +259,26 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
           window.dispatchEvent(new CustomEvent("whiteboard-import-json", { detail: { items } }));
         }
       } catch {
-        alert("Invalid JSON whiteboard file");
+        setConfirmState({
+          title: "Invalid File",
+          description: "The selected file is not a valid Stream-Sync JSON whiteboard.",
+          confirmLabel: "OK",
+          cancelLabel: "",
+          onConfirm: () => {}
+        });
       }
     });
     e.target.value = "";
+  }
+
+  function deleteRoom() {
+    setConfirmState({
+      title: `Delete room ${roomID}?`,
+      description: "This will permanently remove the room and all its drawings, sticky notes, and chat history from the database.",
+      confirmLabel: "Delete Room",
+      danger: true,
+      onConfirm: () => socket?.emit("delete-room")
+    });
   }
 
   const commands: CommandItem[] = [
@@ -249,12 +290,14 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
     { id: "zen", label: zenMode ? "Exit Zen Mode" : "Enter Zen Mode", category: "View", run: () => setZenMode((v) => !v) },
     { id: "viewmode", label: viewMode ? "Exit Read-Only View Mode" : "Enter Read-Only View Mode", category: "Mode", run: () => setViewMode((v) => !v) },
     { id: "search", label: "Search Text & Notes", shortcut: "Ctrl+F", category: "Navigate", run: () => setSearchOpen(true) },
+    { id: "mermaid", label: "Insert Mermaid Flowchart", category: "Diagram", run: () => setMermaidOpen(true) },
     { id: "group", label: "Group Selected", shortcut: "Ctrl+G", category: "Edit", run: () => triggerAction("group") },
     { id: "ungroup", label: "Ungroup Selected", shortcut: "Ctrl+Shift+G", category: "Edit", run: () => triggerAction("ungroup") },
     { id: "lock", label: "Lock / Unlock Selected", shortcut: "Ctrl+Shift+L", category: "Edit", run: () => triggerAction("lock") },
     { id: "png", label: "Export PNG", category: "Export", run: () => window.dispatchEvent(new Event("whiteboard-export-png")) },
     { id: "svg", label: "Export SVG", category: "Export", run: () => window.dispatchEvent(new Event("whiteboard-export-svg")) },
     { id: "json", label: "Save Board as JSON", category: "Export", run: () => window.dispatchEvent(new Event("whiteboard-export-json")) },
+    { id: "delete-room", label: "Delete Room Permanently", category: "Room", run: deleteRoom },
     { id: "help", label: "Keyboard Shortcuts", shortcut: "?", category: "Help", run: () => setHelpOpen(true) }
   ];
 
@@ -287,13 +330,23 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
               </div>
             </div>
             <div className={`hidden h-6 w-px md:block ${darkMode ? "bg-slate-800" : "bg-slate-200"}`} />
-            <ActiveUsers users={users} />
+            <ActiveUsers
+              users={users}
+              followingId={followingId}
+              onSelectUser={(u) => {
+                if (u.id === user.id) return;
+                setFollowingId((prev) => (prev === u.id ? null : u.id));
+              }}
+            />
           </div>
 
           {/* Utility & Export controls */}
           <div className="flex items-center gap-1">
             <HeaderIconBtn active={false} dark={darkMode} onClick={() => setSearchOpen(true)} title="Search (Ctrl+F)">
               <Search className="h-3.5 w-3.5" />
+            </HeaderIconBtn>
+            <HeaderIconBtn active={false} dark={darkMode} onClick={() => setMermaidOpen(true)} title="Mermaid Diagram">
+              <GitBranch className="h-3.5 w-3.5" />
             </HeaderIconBtn>
             <HeaderIconBtn active={false} dark={darkMode} onClick={() => setPaletteOpen(true)} title="Command Palette (Ctrl+K)">
               <Sparkles className="h-3.5 w-3.5" />
@@ -352,6 +405,14 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
               <FileCode2 className="h-3.5 w-3.5" />
               <span className="hidden md:inline">SVG</span>
             </button>
+            <button
+              className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium text-rose-600 transition ${darkMode ? "border-rose-900/60 hover:bg-rose-950/50" : "border-rose-200 bg-rose-50/60 hover:bg-rose-100"}`}
+              onClick={deleteRoom}
+              title="Delete Room from Database"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">Delete Room</span>
+            </button>
           </div>
         </header>
       )}
@@ -368,10 +429,21 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
           snapEnabled={snapEnabled}
           showMinimap={showMinimap && !zenMode}
           viewMode={viewMode}
+          followingId={followingId}
           onZoomChange={handleZoomChange}
           onSelectedKindChange={setSelectedItemKind}
           onItemsChange={setBoardItems}
+          onPickColor={(c) => setTool((t) => ({ ...t, color: c, type: "pencil" }))}
         />
+
+        {followingId && (
+          <button
+            onClick={() => setFollowingId(null)}
+            className="absolute bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-full bg-teal-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg transition hover:bg-teal-700"
+          >
+            Following {users.find((u) => u.id === followingId)?.name || "user"} · Click to stop
+          </button>
+        )}
 
         {zenMode && (
           <button
@@ -447,11 +519,15 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
 
             <button
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-rose-500 transition hover:bg-rose-50 hover:text-rose-600"
-              onClick={() => {
-                if (confirm("Clear the entire canvas?")) {
-                  socket?.emit("clear-canvas");
-                }
-              }}
+              onClick={() =>
+                setConfirmState({
+                  title: "Clear entire canvas?",
+                  description: "All strokes, shapes, notes, and frames in this room will be cleared.",
+                  confirmLabel: "Clear Canvas",
+                  danger: true,
+                  onConfirm: () => socket?.emit("clear-canvas")
+                })
+              }
               title="Clear Canvas"
             >
               <Trash2 className="h-4 w-4" />
@@ -498,6 +574,17 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
                       className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                     />
                   </label>
+                  <button
+                    onClick={() => setTool((t) => ({ ...t, type: "eyedropper" }))}
+                    className={`flex h-5 w-5 items-center justify-center rounded-md border transition ${
+                      tool.type === "eyedropper"
+                        ? "border-teal-500 bg-teal-50 text-teal-700"
+                        : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                    }`}
+                    title="Pick color from canvas"
+                  >
+                    <Pipette className="h-3 w-3" />
+                  </button>
                 </div>
               </div>
             )}
@@ -781,6 +868,21 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
       />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <ShortcutsModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <MermaidModal
+        open={mermaidOpen}
+        onClose={() => setMermaidOpen(false)}
+        onInsert={(items) => window.dispatchEvent(new CustomEvent("whiteboard-import-json", { detail: { items } }))}
+      />
+      <ConfirmModal
+        open={confirmState !== null}
+        title={confirmState?.title || ""}
+        description={confirmState?.description || ""}
+        confirmLabel={confirmState?.confirmLabel}
+        cancelLabel={confirmState?.cancelLabel}
+        danger={confirmState?.danger}
+        onConfirm={() => confirmState?.onConfirm()}
+        onClose={() => setConfirmState(null)}
+      />
     </main>
   );
 }

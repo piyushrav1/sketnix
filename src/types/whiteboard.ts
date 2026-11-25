@@ -24,11 +24,16 @@ export type Stroke = {
   points: Point[];
   style: StrokeStyle;
   zIndex: number;
-  kind?: "stroke" | "text" | "note" | "frame";
+  kind?: "stroke" | "text" | "note" | "frame" | "image";
   text?: string;
   box?: { width: number; height: number };
   groupId?: string;
   locked?: boolean;
+  angle?: number;
+  link?: string;
+  imageData?: string;
+  startBinding?: { elementId: string };
+  endBinding?: { elementId: string };
 };
 
 export type ChatMessage = {

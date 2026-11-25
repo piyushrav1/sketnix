@@ -58,6 +58,11 @@ const strokeSchema = new mongoose.Schema(
     },
     groupId: { type: String },
     locked: { type: Boolean, default: false },
+    angle: { type: Number },
+    link: { type: String },
+    imageData: { type: String },
+    startBinding: { elementId: { type: String } },
+    endBinding: { elementId: { type: String } },
     isDeleted: { type: Boolean, default: false, index: true }
   },
   { timestamps: true }

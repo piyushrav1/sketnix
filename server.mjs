@@ -44,7 +44,12 @@ async function getRoomState(roomID) {
       ...(stroke.text !== undefined ? { text: stroke.text } : {}),
       ...(stroke.box ? { box: stroke.box } : {}),
       ...(stroke.groupId ? { groupId: stroke.groupId } : {}),
-      ...(stroke.locked ? { locked: stroke.locked } : {})
+      ...(stroke.locked ? { locked: stroke.locked } : {}),
+      ...(stroke.angle !== undefined ? { angle: stroke.angle } : {}),
+      ...(stroke.link ? { link: stroke.link } : {}),
+      ...(stroke.imageData ? { imageData: stroke.imageData } : {}),
+      ...(stroke.startBinding ? { startBinding: stroke.startBinding } : {}),
+      ...(stroke.endBinding ? { endBinding: stroke.endBinding } : {})
     })),
     messages: messages.reverse().map((message) => ({
       id: message._id.toString(),
@@ -98,7 +103,7 @@ io.on("connection", (socket) => {
     socket.to(roomID).emit("cursor-leave", { id: user.id });
   });
 
-  socket.on("start-stroke", ({ strokeID, color, width, opacity, variant, fill, dashed, roughness, seed, initialCoords }) => {
+  socket.on("start-stroke", ({ strokeID, color, width, opacity, variant, fill, dashed, roughness, seed, startBinding, endBinding, initialCoords }) => {
     const { roomID, user } = socket.data;
     if (!roomID || !user || !strokeID || !initialCoords) return;
 
@@ -119,6 +124,8 @@ io.on("connection", (socket) => {
       author: { id: user.id, name: user.name },
       points: [initialCoords],
       style,
+      ...(startBinding ? { startBinding } : {}),
+      ...(endBinding ? { endBinding } : {}),
       startedAt: Date.now()
     };
 
@@ -160,6 +167,8 @@ io.on("connection", (socket) => {
       author: active.author,
       points: active.points,
       style: active.style,
+      ...(active.startBinding ? { startBinding: active.startBinding } : {}),
+      ...(active.endBinding ? { endBinding: active.endBinding } : {}),
       zIndex
     });
 
@@ -287,6 +296,8 @@ io.on("connection", (socket) => {
         if (p.style) set.style = p.style;
         if (p.groupId !== undefined) set.groupId = p.groupId;
         if (p.locked !== undefined) set.locked = p.locked;
+        if (p.angle !== undefined) set.angle = p.angle;
+        if (p.link !== undefined) set.link = p.link;
         return {
           updateOne: {
             filter: { roomID, strokeID: p.strokeID, isDeleted: false },
@@ -330,7 +341,7 @@ io.on("connection", (socket) => {
     io.to(roomID).emit("strokes-imported", { items: docs });
   });
 
-  socket.on("upsert-item", async ({ strokeID, points, style, kind, text, box }) => {
+  socket.on("upsert-item", async ({ strokeID, points, style, kind, text, box, imageData, angle, link, startBinding, endBinding }) => {
     const { roomID, user } = socket.data;
     if (!roomID || !user || !strokeID || !Array.isArray(points) || points.length === 0) return;
 
@@ -341,6 +352,11 @@ io.on("connection", (socket) => {
       if (kind) existing.kind = kind;
       if (text !== undefined) existing.text = text;
       if (box) existing.box = box;
+      if (imageData !== undefined) existing.imageData = imageData;
+      if (angle !== undefined) existing.angle = angle;
+      if (link !== undefined) existing.link = link;
+      if (startBinding !== undefined) existing.startBinding = startBinding;
+      if (endBinding !== undefined) existing.endBinding = endBinding;
       existing.isDeleted = false;
       await existing.save();
 
@@ -352,7 +368,12 @@ io.on("connection", (socket) => {
         zIndex: existing.zIndex,
         kind: existing.kind,
         text: existing.text,
-        box: existing.box
+        box: existing.box,
+        imageData: existing.imageData,
+        angle: existing.angle,
+        link: existing.link,
+        startBinding: existing.startBinding,
+        endBinding: existing.endBinding
       });
       return;
     }
@@ -370,7 +391,12 @@ io.on("connection", (socket) => {
       zIndex,
       kind: kind || "text",
       text: text || "",
-      ...(box ? { box } : {})
+      ...(box ? { box } : {}),
+      ...(imageData ? { imageData } : {}),
+      ...(angle !== undefined ? { angle } : {}),
+      ...(link ? { link } : {}),
+      ...(startBinding ? { startBinding } : {}),
+      ...(endBinding ? { endBinding } : {})
     });
 
     io.to(roomID).emit("item-upserted", {
@@ -381,8 +407,19 @@ io.on("connection", (socket) => {
       zIndex: created.zIndex,
       kind: created.kind,
       text: created.text,
-      box: created.box
+      box: created.box,
+      imageData: created.imageData,
+      angle: created.angle,
+      link: created.link,
+      startBinding: created.startBinding,
+      endBinding: created.endBinding
     });
+  });
+
+  socket.on("camera-sync", ({ x, y, zoom }) => {
+    const { roomID, user } = socket.data;
+    if (!roomID || !user) return;
+    socket.to(roomID).emit("camera-sync", { userId: user.id, x, y, zoom });
   });
 
   socket.on("laser-move", ({ x, y, color }) => {
@@ -402,6 +439,25 @@ io.on("connection", (socket) => {
     ]);
 
     io.to(roomID).emit("clear-canvas");
+  });
+
+  socket.on("delete-room", async () => {
+    const { roomID } = socket.data;
+    if (!roomID) return;
+
+    await Promise.all([
+      Room.deleteOne({ code: roomID }),
+      Stroke.deleteMany({ roomID }),
+      Message.deleteMany({ roomID }),
+      Snapshot.deleteMany({ roomID })
+    ]);
+
+    for (const [key, stroke] of activeStrokes.entries()) {
+      if (stroke.roomID === roomID) activeStrokes.delete(key);
+    }
+    activeUsersByRoom.delete(roomID);
+
+    io.to(roomID).emit("room-deleted");
   });
 
   socket.on("chat-message", async ({ body }) => {
