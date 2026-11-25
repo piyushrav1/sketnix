@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Stream-Sync Whiteboard",
-  description: "Real-time collaborative whiteboard with MongoDB persistence"
+  title: "Sketnix — Collaborative Visual Workspace",
+  description: "Real-time collaborative visual workspace for brainstorming, diagrams, and team sessions"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

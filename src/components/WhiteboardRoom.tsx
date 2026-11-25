@@ -261,7 +261,7 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
       } catch {
         setConfirmState({
           title: "Invalid File",
-          description: "The selected file is not a valid Stream-Sync JSON whiteboard.",
+          description: "The selected file is not a valid Sketnix JSON board.",
           confirmLabel: "OK",
           cancelLabel: "",
           onConfirm: () => {}
@@ -317,7 +317,7 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
             <div className="min-w-0 pr-1">
               <div className="flex items-center gap-1.5">
                 <span className="hidden rounded-md bg-teal-600/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-teal-600 sm:inline">
-                  Stream-Sync
+                  Sketnix
                 </span>
                 <h1 className={`truncate text-sm font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>{roomID}</h1>
                 <button

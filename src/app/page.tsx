@@ -53,9 +53,9 @@ export default function LandingPage() {
       <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-5xl items-center">
         <div className="grid w-full gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
-            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-teal-700">Stream-Sync</p>
+            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-teal-700">Sketnix</p>
             <h1 className="max-w-2xl text-5xl font-semibold leading-tight text-slate-950 md:text-7xl">
-              Collaborative whiteboard
+              Collaborative visual workspace
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">
               Sketch together with live strokes, named cursors, persistent chat, undo history, snapshots, and exports.

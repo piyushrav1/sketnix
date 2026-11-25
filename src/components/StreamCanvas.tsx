@@ -616,7 +616,7 @@ export function StreamCanvas({
       download(`${roomID}.svg`, `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
     };
     const exportJson = () => {
-      const payload = JSON.stringify({ type: "stream-sync-whiteboard", version: 1, items: strokesRef.current }, null, 2);
+      const payload = JSON.stringify({ type: "sketnix-board", version: 1, items: strokesRef.current }, null, 2);
       download(`${roomID}.json`, `data:application/json;charset=utf-8,${encodeURIComponent(payload)}`);
     };
     const importJson = (event: Event) => {

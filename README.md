@@ -1,5 +1,5 @@
 ---
-title: Stream-Sync Whiteboard
+title: Sketnix
 emoji: 🎨
 colorFrom: teal
 colorTo: slate
@@ -8,9 +8,9 @@ pinned: false
 app_port: 7860
 ---
 
-# 🎨 Stream-Sync Whiteboard
+# 🎨 Sketnix
 
-A high-performance, real-time collaborative whiteboard built for fast brainstorming, architecture diagramming, and team design sessions.
+A high-performance, real-time collaborative visual workspace built for fast brainstorming, architecture diagramming, and team collaboration.
 
 ![Project Status](https://img.shields.io/badge/Status-Active-brightgreen)
 ![Tech Stack](https://img.shields.io/badge/Stack-Next.js%20%7C%20Socket.io%20%7C%20MongoDB-blue)
@@ -88,8 +88,8 @@ A high-performance, real-time collaborative whiteboard built for fast brainstorm
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/piyushrav1/whiteboard-main.git
-   cd whiteboard-main
+   git clone https://github.com/piyushrav1/sketnix.git
+   cd sketnix
    ```
 
 2. **Install dependencies:**

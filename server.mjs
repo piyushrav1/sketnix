@@ -494,5 +494,5 @@ io.on("connection", (socket) => {
 });
 
 httpServer.listen(port, () => {
-  console.log(`Whiteboard ready on http://localhost:${port}`);
+  console.log(`Sketnix ready on http://localhost:${port}`);
 });
