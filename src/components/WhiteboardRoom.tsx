@@ -466,54 +466,54 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
         {/* ═══════════════════════════════════════════════════ */}
         {!zenMode && !viewMode && (
           <div className={`absolute left-1/2 top-3 z-30 flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-2xl border p-1 shadow-lg backdrop-blur-md ${darkMode ? "border-slate-700/80 bg-slate-900/95" : "border-slate-200/90 bg-white/95"}`}>
-            <ExcalidrawBtn active={tool.type === "hand"} onClick={() => setTool(t => ({ ...t, type: "hand" }))} title="Hand / Pan (H)" shortcut="H">
+            <DockBtn active={tool.type === "hand"} onClick={() => setTool(t => ({ ...t, type: "hand" }))} title="Hand / Pan (H)" shortcut="H">
               <Hand className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "pointer"} onClick={() => setTool(t => ({ ...t, type: "pointer" }))} title="Selection (V)" shortcut="V">
+            </DockBtn>
+            <DockBtn active={tool.type === "pointer"} onClick={() => setTool(t => ({ ...t, type: "pointer" }))} title="Selection (V)" shortcut="V">
               <MousePointer2 className="h-4 w-4" />
-            </ExcalidrawBtn>
+            </DockBtn>
 
             <div className={`mx-1 h-6 w-px shrink-0 ${darkMode ? "bg-slate-700" : "bg-slate-200"}`} />
 
-            <ExcalidrawBtn active={tool.type === "rectangle"} onClick={() => setTool(t => ({ ...t, type: "rectangle" }))} title="Rectangle (R)" shortcut="R">
+            <DockBtn active={tool.type === "rectangle"} onClick={() => setTool(t => ({ ...t, type: "rectangle" }))} title="Rectangle (R)" shortcut="R">
               <Square className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "diamond"} onClick={() => setTool(t => ({ ...t, type: "diamond" }))} title="Diamond (D)" shortcut="D">
+            </DockBtn>
+            <DockBtn active={tool.type === "diamond"} onClick={() => setTool(t => ({ ...t, type: "diamond" }))} title="Diamond (D)" shortcut="D">
               <Diamond className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "ellipse"} onClick={() => setTool(t => ({ ...t, type: "ellipse" }))} title="Ellipse (C)" shortcut="C">
+            </DockBtn>
+            <DockBtn active={tool.type === "ellipse"} onClick={() => setTool(t => ({ ...t, type: "ellipse" }))} title="Ellipse (C)" shortcut="C">
               <Circle className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "arrow"} onClick={() => setTool(t => ({ ...t, type: "arrow" }))} title="Arrow (A)" shortcut="A">
+            </DockBtn>
+            <DockBtn active={tool.type === "arrow"} onClick={() => setTool(t => ({ ...t, type: "arrow" }))} title="Arrow (A)" shortcut="A">
               <ArrowRight className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "line"} onClick={() => setTool(t => ({ ...t, type: "line" }))} title="Line (L)" shortcut="L">
+            </DockBtn>
+            <DockBtn active={tool.type === "line"} onClick={() => setTool(t => ({ ...t, type: "line" }))} title="Line (L)" shortcut="L">
               <Minus className="h-4 w-4" />
-            </ExcalidrawBtn>
+            </DockBtn>
 
             <div className={`mx-1 h-6 w-px shrink-0 ${darkMode ? "bg-slate-700" : "bg-slate-200"}`} />
 
-            <ExcalidrawBtn active={tool.type === "pencil"} onClick={() => setTool(t => ({ ...t, type: "pencil" }))} title="Draw (P)" shortcut="P">
+            <DockBtn active={tool.type === "pencil"} onClick={() => setTool(t => ({ ...t, type: "pencil" }))} title="Draw (P)" shortcut="P">
               <Pencil className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "highlighter"} onClick={() => setTool(t => ({ ...t, type: "highlighter", width: Math.max(t.width, 16) }))} title="Highlighter (M)" shortcut="M">
+            </DockBtn>
+            <DockBtn active={tool.type === "highlighter"} onClick={() => setTool(t => ({ ...t, type: "highlighter", width: Math.max(t.width, 16) }))} title="Highlighter (M)" shortcut="M">
               <Highlighter className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "text"} onClick={() => setTool(t => ({ ...t, type: "text" }))} title="Text (T)" shortcut="T">
+            </DockBtn>
+            <DockBtn active={tool.type === "text"} onClick={() => setTool(t => ({ ...t, type: "text" }))} title="Text (T)" shortcut="T">
               <Type className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "note"} onClick={() => setTool(t => ({ ...t, type: "note" }))} title="Sticky Note (N)" shortcut="N">
+            </DockBtn>
+            <DockBtn active={tool.type === "note"} onClick={() => setTool(t => ({ ...t, type: "note" }))} title="Sticky Note (N)" shortcut="N">
               <StickyNote className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "frame"} onClick={() => setTool(t => ({ ...t, type: "frame" }))} title="Frame (F)" shortcut="F">
+            </DockBtn>
+            <DockBtn active={tool.type === "frame"} onClick={() => setTool(t => ({ ...t, type: "frame" }))} title="Frame (F)" shortcut="F">
               <Frame className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "eraser"} onClick={() => setTool(t => ({ ...t, type: "eraser" }))} title="Eraser (E)" shortcut="E">
+            </DockBtn>
+            <DockBtn active={tool.type === "eraser"} onClick={() => setTool(t => ({ ...t, type: "eraser" }))} title="Eraser (E)" shortcut="E">
               <Eraser className="h-4 w-4" />
-            </ExcalidrawBtn>
-            <ExcalidrawBtn active={tool.type === "laser"} onClick={() => setTool(t => ({ ...t, type: "laser" }))} title="Laser Pointer (K)" shortcut="K">
+            </DockBtn>
+            <DockBtn active={tool.type === "laser"} onClick={() => setTool(t => ({ ...t, type: "laser" }))} title="Laser Pointer (K)" shortcut="K">
               <CircleDot className="h-4 w-4" />
-            </ExcalidrawBtn>
+            </DockBtn>
 
             <div className={`mx-1 h-6 w-px shrink-0 ${darkMode ? "bg-slate-700" : "bg-slate-200"}`} />
 
@@ -536,7 +536,7 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
         )}
 
         {/* ═══════════════════════════════════════════════════ */}
-        {/* ── Excalidraw-style left properties panel ──      */}
+        {/* ── Stream-Sync left properties panel ──           */}
         {/* ═══════════════════════════════════════════════════ */}
         {showPropsPanel && !zenMode && !viewMode && (
           <aside
@@ -811,7 +811,7 @@ export function WhiteboardRoom({ roomID }: { roomID: string }) {
         )}
 
         {/* ═══════════════════════════════════════════════════ */}
-        {/* ── Excalidraw-style bottom-left zoom & undo/redo ── */}
+        {/* ── Stream-Sync bottom-left zoom & undo/redo ──    */}
         {/* ═══════════════════════════════════════════════════ */}
         <div className="absolute bottom-4 left-4 z-30 flex items-center gap-2">
           <div className="flex items-center rounded-xl border border-slate-200/90 bg-white/95 p-1 shadow-lg backdrop-blur-md">
@@ -918,7 +918,7 @@ function HeaderIconBtn({
 }
 
 /* ── Stream-Sync top dock button with shortcut badge ── */
-function ExcalidrawBtn({
+function DockBtn({
   active,
   onClick,
   title,

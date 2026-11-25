@@ -1,16 +1,16 @@
 ---
-title: Realtime Whiteboard
+title: Stream-Sync Whiteboard
 emoji: 🎨
-colorFrom: blue
-colorTo: green
+colorFrom: teal
+colorTo: slate
 sdk: docker
 pinned: false
 app_port: 7860
 ---
 
-# 🎨  Realtime Whiteboard
+# 🎨 Stream-Sync Whiteboard
 
-A high-performance, real-time collaborative whiteboard designed for seamless brainstorming and design sessions. Built with a "Miro-style" focus on speed, precision, and space efficiency.
+A high-performance, real-time collaborative whiteboard built for fast brainstorming, architecture diagramming, and team design sessions.
 
 ![Project Status](https://img.shields.io/badge/Status-Active-brightgreen)
 ![Tech Stack](https://img.shields.io/badge/Stack-Next.js%20%7C%20Socket.io%20%7C%20MongoDB-blue)
@@ -18,25 +18,32 @@ A high-performance, real-time collaborative whiteboard designed for seamless bra
 ## 🚀 Key Features
 
 ### 🌌 Infinite Canvas Engine
-*   **Pan & Zoom:** Navigate a massive workspace with smooth mouse-wheel zoom and space-drag panning.
-*   **Adaptive Grid:** A 3-tier dynamic grid system (minor, medium, major) that intelligently fades based on your zoom level.
-*   **High Performance:** Optimized requestAnimationFrame rendering loop for smooth 60fps interaction.
+* **Pan & Zoom:** Smooth cursor-centered mouse-wheel zoom (`10%–500%`), middle-mouse/hand-tool panning, `Space`-drag panning, and **Zoom to Fit**.
+* **Adaptive Grid & Minimap:** 3-tier dynamic grid (minor, medium, major) with toggleable grid visibility and a clickable corner **Minimap**.
+* **Dark Mode & Zen Mode:** Toggleable dark canvas with automatic ink/fill contrast adaptation, distraction-free **Zen Mode** (`Esc` to exit), and read-only **View Mode**.
 
-### 🛠 Professional Tooling
-*   **Compact Nested Toolbar:** A space-saving, professional interface that groups drawing and shape tools into logical categories.
-*   **Advanced Shapes:** Precision-rendered Rectangles, Ellipses, Arrows, and Lines.
-*   **True Object Eraser:** Mathematical hit-testing allows you to erase entire objects/strokes with a single click or drag.
-*   **Discrete Presets:** Professional-grade brush thickness and curated color palettes.
+### 🛠 Drawing, Shapes & Diagramming
+* **Freehand & Highlighter:** Smooth quadratic-Bezier ink rendering, semi-transparent highlighter, and a live **Color Eye Dropper** to sample colors directly from the canvas.
+* **Sketchy & Clean Shapes:** Rectangles, Diamonds, Ellipses, Arrows, and Lines with RoughJS hand-drawn sloppiness presets (`Clean`, `Artist`, `Sketch`), dashed lines, and hachure fills.
+* **Smart Arrow Binding:** Arrows snap to and stay connected to shapes when you move them.
+* **Mermaid Flowchart Import:** Convert Mermaid flowchart syntax directly into editable shapes, labels, and bound arrows.
+* **Text, Sticky Notes & Frames:** Rich typography (`Hand`, `Sans`, `Mono`, `Serif`, sizes `14–48px`, Bold/Italic, alignment, line height, background pill), corner font scaling, side-handle text reflow, auto-lists (`- `, `1. `), bound text inside shapes (double-click any shape), pastel sticky notes, and labeled **Frames**.
+* **Images & Hyperlinks:** Paste (`Ctrl+V`) or drag-and-drop images onto the board, and attach clickable URLs to any element (`Ctrl+Click` to open).
 
-### 👥 Real-Time Collaboration
-*   **Live Cursors:** See exactly where your teammates are working with labeled, color-coded cursors.
-*   **Instant Sync:** Socket.io powered synchronization for strokes, shapes, and deletions.
-*   **Collaborative Chat:** Integrated floating chat system with message notifications.
-*   **Room Persistence:** Durable storage of all board states in MongoDB Atlas.
+### 🧩 Selection & Layout Controls
+* **Transform & Organize:** Marquee & `Shift`-click multi-select, corner resize, **Element Rotation** (`Shift` snaps to `15°`), **Grouping (`Ctrl+G`)**, **Locking (`Ctrl+Shift+L`)**, **Z-order (`[` / `]`)**, Flip Horizontal/Vertical, Align, and Distribute spacing.
+* **Smart Snapping:** Live alignment guide lines when dragging near other elements' edges or centers.
+* **Object Eraser:** Hit-tested object eraser synced across all collaborators.
+
+### 👥 Real-Time Collaboration & Productivity
+* **Live Cursors & Spotlight Follow:** Color-coded cursors and click-to-follow collaborator viewports.
+* **Ephemeral Laser Pointer:** Temporary fading laser trails for live walkthroughs.
+* **Collaborative Chat:** Floating chat drawer with unread badges and persistent room history.
+* **Search & Command Palette:** `Ctrl+F` to jump to any text, sticky note, or frame; `Ctrl+K` for quick commands; `?` for keyboard shortcuts.
+* **Room Management & Persistence:** 6-digit room codes backed by MongoDB, plus **Delete Room** to permanently remove a room and its data.
 
 ### 💾 Export & Sharing
-*   **High-Res Export:** Download your workspace as high-quality **PNG** or scalable **SVG**.
-*   **Room Codes:** Simple, shareable 6-digit room IDs for instant team joining.
+* **PNG, SVG & JSON:** Export high-res PNG, full-board SVG, or save/import portable `.json` board files.
 
 ---
 
@@ -44,35 +51,38 @@ A high-performance, real-time collaborative whiteboard designed for seamless bra
 
 | Key | Action |
 | :--- | :--- |
-| `V` | **Select / Pointer** |
-| `H` | **Hand Tool (Pan)** |
-| `Space` | **Hold to Pan** |
-| `P` | **Pencil Tool** |
-| `E` | **Eraser Tool** |
-| `R` | **Rectangle Tool** |
-| `C` | **Circle / Ellipse Tool** |
-| `A` | **Arrow Tool** |
-| `L` | **Line Tool** |
-| `Ctrl + Z` | **Undo** |
-| `Ctrl + Y` | **Redo** |
+| `V` | **Select / Move** |
+| `H` / `Space` | **Hand / Hold to Pan** |
+| `R` / `D` / `C` | **Rectangle / Diamond / Ellipse** |
+| `A` / `L` | **Arrow / Line** |
+| `P` / `M` | **Pencil / Highlighter** |
+| `T` / `N` / `F` | **Text / Sticky Note / Frame** |
+| `E` / `K` | **Eraser / Laser Pointer** |
+| `Ctrl + Z` / `Ctrl + Y` | **Undo / Redo** |
+| `Ctrl + D` / `Delete` | **Duplicate / Delete Selected** |
+| `Ctrl + G` / `Ctrl + Shift + G` | **Group / Ungroup** |
+| `Ctrl + Shift + L` | **Lock / Unlock** |
+| `[` / `]` | **Send to Back / Bring to Front** |
+| `Ctrl + F` / `Ctrl + K` | **Search / Command Palette** |
+| `?` | **Keyboard Shortcuts Modal** |
 
 ---
 
 ## 🛠 Tech Stack
 
-*   **Frontend:** Next.js 14, Tailwind CSS, Lucide React
-*   **Graphics:** HTML5 Canvas API (World-space Camera Model)
-*   **Real-time:** Socket.io
-*   **Backend:** Node.js (Custom Server)
-*   **Database:** MongoDB Atlas (Mongoose)
+* **Frontend:** Next.js 14, Tailwind CSS, Lucide React
+* **Graphics:** HTML5 Canvas API + RoughJS
+* **Real-time:** Socket.io
+* **Backend:** Node.js (Custom HTTP + Socket.io Server)
+* **Database:** MongoDB (Mongoose)
 
 ---
 
 ## 🏁 Getting Started
 
 ### Prerequisites
-*   Node.js 18+
-*   MongoDB Atlas Account
+* Node.js 18+
+* MongoDB connection string (MongoDB Atlas or local MongoDB)
 
 ### Installation
 
