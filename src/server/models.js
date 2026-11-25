@@ -11,7 +11,20 @@ const pointSchema = new mongoose.Schema(
 const styleSchema = new mongoose.Schema(
   {
     color: { type: String, required: true },
-    width: { type: Number, required: true }
+    width: { type: Number, required: true },
+    opacity: { type: Number },
+    variant: { type: String },
+    fill: { type: String },
+    dashed: { type: Boolean },
+    fontSize: { type: Number },
+    fontWeight: { type: String },
+    fontStyle: { type: String },
+    textAlign: { type: String },
+    fontFamily: { type: String },
+    lineHeight: { type: Number },
+    textBg: { type: String },
+    roughness: { type: Number },
+    seed: { type: Number }
   },
   { _id: false }
 );
@@ -37,6 +50,14 @@ const strokeSchema = new mongoose.Schema(
     points: { type: [pointSchema], default: [] },
     style: { type: styleSchema, required: true },
     zIndex: { type: Number, required: true },
+    kind: { type: String, default: "stroke" },
+    text: { type: String },
+    box: {
+      width: { type: Number },
+      height: { type: Number }
+    },
+    groupId: { type: String },
+    locked: { type: Boolean, default: false },
     isDeleted: { type: Boolean, default: false, index: true }
   },
   { timestamps: true }

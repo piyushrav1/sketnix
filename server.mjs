@@ -39,7 +39,12 @@ async function getRoomState(roomID) {
       author: stroke.author,
       points: stroke.points,
       style: stroke.style,
-      zIndex: stroke.zIndex
+      zIndex: stroke.zIndex,
+      ...(stroke.kind ? { kind: stroke.kind } : {}),
+      ...(stroke.text !== undefined ? { text: stroke.text } : {}),
+      ...(stroke.box ? { box: stroke.box } : {}),
+      ...(stroke.groupId ? { groupId: stroke.groupId } : {}),
+      ...(stroke.locked ? { locked: stroke.locked } : {})
     })),
     messages: messages.reverse().map((message) => ({
       id: message._id.toString(),
@@ -93,16 +98,27 @@ io.on("connection", (socket) => {
     socket.to(roomID).emit("cursor-leave", { id: user.id });
   });
 
-  socket.on("start-stroke", ({ strokeID, color, width, initialCoords }) => {
+  socket.on("start-stroke", ({ strokeID, color, width, opacity, variant, fill, dashed, roughness, seed, initialCoords }) => {
     const { roomID, user } = socket.data;
     if (!roomID || !user || !strokeID || !initialCoords) return;
+
+    const style = {
+      color,
+      width,
+      ...(opacity !== undefined ? { opacity } : {}),
+      ...(variant ? { variant } : {}),
+      ...(fill ? { fill } : {}),
+      ...(dashed ? { dashed } : {}),
+      ...(roughness !== undefined ? { roughness } : {}),
+      ...(seed !== undefined ? { seed } : {})
+    };
 
     const stroke = {
       strokeID,
       roomID,
       author: { id: user.id, name: user.name },
       points: [initialCoords],
-      style: { color, width },
+      style,
       startedAt: Date.now()
     };
 
@@ -185,7 +201,12 @@ io.on("connection", (socket) => {
         author: stroke.author,
         points: stroke.points,
         style: stroke.style,
-        zIndex: stroke.zIndex
+        zIndex: stroke.zIndex,
+        ...(stroke.kind ? { kind: stroke.kind } : {}),
+        ...(stroke.text !== undefined ? { text: stroke.text } : {}),
+        ...(stroke.box ? { box: stroke.box } : {}),
+        ...(stroke.groupId ? { groupId: stroke.groupId } : {}),
+        ...(stroke.locked ? { locked: stroke.locked } : {})
       });
     }
   });
@@ -200,6 +221,174 @@ io.on("connection", (socket) => {
     );
 
     if (stroke) socket.to(roomID).emit("remove-stroke", { strokeID });
+  });
+
+  socket.on("move-strokes", async ({ updates }) => {
+    const { roomID } = socket.data;
+    if (!roomID || !Array.isArray(updates) || updates.length === 0) return;
+
+    const ops = updates
+      .filter((u) => u?.strokeID && Array.isArray(u.points) && u.points.length > 0)
+      .map((u) => ({
+        updateOne: {
+          filter: { roomID, strokeID: u.strokeID, isDeleted: false },
+          update: {
+            $set: {
+              points: u.points,
+              ...(u.box ? { box: u.box } : {}),
+              ...(u.style ? { style: u.style } : {})
+            }
+          }
+        }
+      }));
+
+    if (ops.length > 0) {
+      await Stroke.bulkWrite(ops);
+      socket.to(roomID).emit("strokes-moved", { updates });
+    }
+  });
+
+  socket.on("reorder-strokes", async ({ strokeIDs, direction }) => {
+    const { roomID } = socket.data;
+    if (!roomID || !Array.isArray(strokeIDs) || strokeIDs.length === 0) return;
+
+    const all = await Stroke.find({ roomID, isDeleted: false }).sort({ zIndex: 1 }).lean();
+    if (all.length === 0) return;
+
+    let nextZ = direction === "front" ? (all[all.length - 1].zIndex || 0) + 1 : (all[0].zIndex || 0) - strokeIDs.length;
+    const updates = strokeIDs.map((strokeID) => ({ strokeID, zIndex: nextZ++ }));
+
+    await Stroke.bulkWrite(
+      updates.map((u) => ({
+        updateOne: {
+          filter: { roomID, strokeID: u.strokeID },
+          update: { $set: { zIndex: u.zIndex } }
+        }
+      }))
+    );
+
+    if (direction === "front") {
+      await Room.updateOne({ code: roomID }, { $max: { strokeCount: nextZ } });
+    }
+
+    io.to(roomID).emit("strokes-reordered", { updates });
+  });
+
+  socket.on("patch-strokes", async ({ patches }) => {
+    const { roomID } = socket.data;
+    if (!roomID || !Array.isArray(patches) || patches.length === 0) return;
+
+    const ops = patches
+      .filter((p) => p?.strokeID)
+      .map((p) => {
+        const set = {};
+        if (p.points) set.points = p.points;
+        if (p.box) set.box = p.box;
+        if (p.style) set.style = p.style;
+        if (p.groupId !== undefined) set.groupId = p.groupId;
+        if (p.locked !== undefined) set.locked = p.locked;
+        return {
+          updateOne: {
+            filter: { roomID, strokeID: p.strokeID, isDeleted: false },
+            update: { $set: set }
+          }
+        };
+      });
+
+    if (ops.length > 0) {
+      await Stroke.bulkWrite(ops);
+      socket.to(roomID).emit("strokes-patched", { patches });
+    }
+  });
+
+  socket.on("import-strokes", async ({ items }) => {
+    const { roomID, user } = socket.data;
+    if (!roomID || !user || !Array.isArray(items) || items.length === 0) return;
+
+    const room = await Room.findOneAndUpdate(
+      { code: roomID },
+      { $inc: { strokeCount: items.length } },
+      { new: true }
+    );
+    let z = (room?.strokeCount || items.length) - items.length + 1;
+
+    const docs = items.map((item) => ({
+      strokeID: item.strokeID,
+      roomID,
+      author: item.author || { id: user.id, name: user.name },
+      points: item.points || [],
+      style: item.style || { color: "#111827", width: 4 },
+      zIndex: z++,
+      kind: item.kind || "stroke",
+      ...(item.text !== undefined ? { text: item.text } : {}),
+      ...(item.box ? { box: item.box } : {}),
+      ...(item.groupId ? { groupId: item.groupId } : {}),
+      ...(item.locked ? { locked: item.locked } : {})
+    }));
+
+    await Stroke.insertMany(docs, { ordered: false }).catch(() => {});
+    io.to(roomID).emit("strokes-imported", { items: docs });
+  });
+
+  socket.on("upsert-item", async ({ strokeID, points, style, kind, text, box }) => {
+    const { roomID, user } = socket.data;
+    if (!roomID || !user || !strokeID || !Array.isArray(points) || points.length === 0) return;
+
+    const existing = await Stroke.findOne({ roomID, strokeID });
+    if (existing) {
+      existing.points = points;
+      existing.style = style;
+      if (kind) existing.kind = kind;
+      if (text !== undefined) existing.text = text;
+      if (box) existing.box = box;
+      existing.isDeleted = false;
+      await existing.save();
+
+      io.to(roomID).emit("item-upserted", {
+        strokeID: existing.strokeID,
+        author: existing.author,
+        points: existing.points,
+        style: existing.style,
+        zIndex: existing.zIndex,
+        kind: existing.kind,
+        text: existing.text,
+        box: existing.box
+      });
+      return;
+    }
+
+    const room = await Room.findOneAndUpdate({ code: roomID }, { $inc: { strokeCount: 1 } }, { new: true });
+    const zIndex = room?.strokeCount || Date.now();
+    const author = { id: user.id, name: user.name };
+
+    const created = await Stroke.create({
+      strokeID,
+      roomID,
+      author,
+      points,
+      style,
+      zIndex,
+      kind: kind || "text",
+      text: text || "",
+      ...(box ? { box } : {})
+    });
+
+    io.to(roomID).emit("item-upserted", {
+      strokeID: created.strokeID,
+      author: created.author,
+      points: created.points,
+      style: created.style,
+      zIndex: created.zIndex,
+      kind: created.kind,
+      text: created.text,
+      box: created.box
+    });
+  });
+
+  socket.on("laser-move", ({ x, y, color }) => {
+    const { roomID, user } = socket.data;
+    if (!roomID || !user) return;
+    socket.to(roomID).emit("laser-move", { id: user.id, x, y, color });
   });
 
   socket.on("clear-canvas", async () => {
